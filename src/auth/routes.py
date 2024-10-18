@@ -12,8 +12,6 @@ from src.settings import settings
 from boto3.dynamodb.conditions import Key, Attr
 
 
-load_dotenv()
-
 router = APIRouter()
 
 dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
@@ -42,7 +40,7 @@ class PasswordChangeRequest(BaseModel):
 
 def userexists(username: str, email: str):
     try:
-        response = credentials_table.scan(
+        response = users_table.scan(
             FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
         )
         return len(response['Items']) > 0
@@ -120,12 +118,6 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
         new_password = request.new_password
         confirm_password = request.confirm_password
 
-        if not current_password or not new_password or not confirm_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Current password, new password, and confirm password are required."
-            )
-    
         if new_password != confirm_password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
