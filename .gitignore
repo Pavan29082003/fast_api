@@ -1,1 +1,2 @@
 .env
+src/auth/cred.json
