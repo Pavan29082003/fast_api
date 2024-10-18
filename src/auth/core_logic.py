@@ -60,7 +60,7 @@ def send_verification_email(email,password,user_id):
             userId='me',
             body={'raw': raw_message}  
         ).execute()
-        print(f"Verification email sent to {email}")
+        print(f"Verification email sent to your {email}")
         response = {
             "user_id" : user_id
         }

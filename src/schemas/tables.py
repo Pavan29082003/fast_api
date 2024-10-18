@@ -10,7 +10,6 @@ import boto3
 # )  
 dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')  
 
-# UsersTable
 def create_users_table():
     table = dynamodb.create_table(
         TableName='UsersTable',
