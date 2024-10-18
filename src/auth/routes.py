@@ -10,17 +10,14 @@ from dotenv import load_dotenv
 from passlib.hash import bcrypt
 from src.settings import settings
 from boto3.dynamodb.conditions import Key, Attr
-
+from src.database.connections import connections
 
 router = APIRouter()
 
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-    aws_access_key_id=settings.aws_access_key,
-    aws_secret_access_key=settings.aws_secret_key
-)  
-users_table = dynamodb.Table('UsersTable')
-credentials_table = dynamodb.Table('CredentialsTable')
-roles_table = dynamodb.Table('RolesTable')
+
+users_table = connections.dynamodb.Table('UsersTable')
+credentials_table = connections.dynamodb.Table('CredentialsTable')
+roles_table = connections.dynamodb.Table('RolesTable')
 
 class RegisterRequest(BaseModel):
     first_name: str
@@ -161,6 +158,9 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=str(e)
         )
+
+
+
 
 
         

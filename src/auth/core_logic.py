@@ -67,8 +67,12 @@ def send_verification_email(email,password,user_id):
     except Exception as e:
         print(f"Error sending email: {str(e)}")
         raise  
+
+
+
     
-    
+
+
 
     
 
