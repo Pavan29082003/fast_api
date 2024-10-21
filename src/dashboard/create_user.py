@@ -31,7 +31,7 @@ class UserCreationRequest(BaseModel):
 
 def userexists(username: str, email: str):
     try:
-        response = credentials_table.scan(
+        response = users_table.scan(
             FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
         )
         return len(response['Items']) > 0
@@ -77,7 +77,6 @@ async def create_user(creator_id: str, request: UserCreationRequest):
         role = request.role
 
         if userexists(username, email):
-
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={'msg': "User already exists with the same username or email"}
@@ -98,6 +97,7 @@ async def create_user(creator_id: str, request: UserCreationRequest):
         credentials_table.put_item(
             Item={
                 'user_id': user_id,
+                'email'  :email,
                 'password': hashed_password
             }
         )

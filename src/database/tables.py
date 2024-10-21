@@ -1,17 +1,8 @@
 import boto3
-# from dotenv import load_dotenv
-# from src.settings import settings
-
-# load_dotenv()
-
-# dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-#     aws_access_key_id=settings.aws_access_key,
-#     aws_secret_access_key=settings.aws_secret_key
-# )  
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')  
+from src.database.connections import connections
 
 def create_users_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName='UsersTable',
         KeySchema=[
             {
@@ -33,9 +24,8 @@ def create_users_table():
     table.wait_until_exists()
     print("UsersTable created")
 
-# CredentialsTable
 def create_credentials_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName='CredentialsTable',
         KeySchema=[
             {
@@ -57,9 +47,9 @@ def create_credentials_table():
     table.wait_until_exists()
     print("CredentialsTable created")
 
-# RolesTable
+
 def create_roles_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName='RolesTable',
         KeySchema=[
             {
@@ -81,9 +71,9 @@ def create_roles_table():
     table.wait_until_exists()
     print("RolesTable created")
 
-# NotesTable
+
 def create_notes_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName='NotesTable',
         KeySchema=[
             {
@@ -105,9 +95,9 @@ def create_notes_table():
     table.wait_until_exists()
     print("NotesTable created")
 
-# UserAuditTable
+
 def create_user_audit_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName="UserAudit",
         KeySchema=[
             {
@@ -129,20 +119,20 @@ def create_user_audit_table():
     table.wait_until_exists()
     print("UserAudit Table created")
 
-# RatingTable
+
 def create_rating_table():
-    table = dynamodb.create_table(
+    table = connections.dynamodb.create_table(
         TableName="RatingTable",
         KeySchema=[
             {
                 'AttributeName': 'user_id',
-                'KeyType': 'HASH'  # Partition key
+                'KeyType': 'HASH' 
             }
         ],
         AttributeDefinitions=[
             {
                 'AttributeName': 'user_id',
-                'AttributeType': 'S'  # String type for user_id
+                'AttributeType': 'S'  
             }
         ],
         ProvisionedThroughput={
