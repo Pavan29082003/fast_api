@@ -1,4 +1,4 @@
 .env
-src/auth/cred.json
+cred.json
 *.pyc
 __pycache__
