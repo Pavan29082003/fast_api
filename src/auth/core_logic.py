@@ -33,9 +33,8 @@ def send_verification_email(email,password,user_id):
     Research Team
     """
     creds = None
-    token_path = r'C:\Users\Ramesh Dornala\Desktop\fast_app\src\auth\token.pickle'
-    creds_path = r'C:\Users\Ramesh Dornala\Desktop\fast_app\src\auth\cred.json'
-    
+    token_path = r'src\auth\token.pickle'
+    creds_path = r'src\auth\cred.json'    
     if os.path.exists(token_path):
         with open(token_path, 'rb') as token:
             creds = pickle.load(token)
@@ -68,8 +67,8 @@ def send_verification_email(email,password,user_id):
     except Exception as e:
         print(f"Error sending email: {str(e)}")
         raise  
-    
-    
+
+
 
     
 

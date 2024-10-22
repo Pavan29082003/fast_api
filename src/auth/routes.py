@@ -1,8 +1,12 @@
-from fastapi import FastAPI, HTTPException, status, APIRouter
+
+from fastapi import ( FastAPI, HTTPException, status, APIRouter,Body,BackgroundTasks,)
+from fastapi import BackgroundTasks, FastAPI
 from pydantic import BaseModel
 import boto3
 from botocore.exceptions import ClientError
 from fastapi.responses import JSONResponse
+from datetime import datetime, timedelta, timezone
+from src.auth.core_logic import  send_verification_email
 import os
 import uuid
 from src.auth import core_logic
@@ -10,19 +14,33 @@ from dotenv import load_dotenv
 from passlib.hash import bcrypt
 from src.settings import settings
 from boto3.dynamodb.conditions import Key, Attr
-
-
-load_dotenv()
+from src.database.connections import connections
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+import jwt
+from src.auth.utils import (
+    authenticate_user,
+    create_access_token,
+    create_refresh_token,
+    get_current_user,
+    store_refresh_token,
+    get_refresh_token_from_db,
+    delete_refresh_token,
+    send_reset_verification_email,
+    get_user_status_by_email,
+    get_user_by_email,
+    ALGORITHM,
+    SECRET_KEY ,
+    REFRESH_SECRET_KEY,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+)
 
 router = APIRouter()
-
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-    aws_access_key_id=settings.aws_access_key,
-    aws_secret_access_key=settings.aws_secret_key
-)  
-users_table = dynamodb.Table('UsersTable')
-credentials_table = dynamodb.Table('CredentialsTable')
-roles_table = dynamodb.Table('RolesTable')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+users_table = connections.dynamodb.Table('UsersTable')
+credentials_table = connections.dynamodb.Table('CredentialsTable')
+roles_table = connections.dynamodb.Table('RolesTable')
 
 class RegisterRequest(BaseModel):
     first_name: str
@@ -33,16 +51,32 @@ class RegisterRequest(BaseModel):
     password: str
     role: str
     organization_name: str
+    user_status: str
+
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
     confirm_password: str
+#dsgfsdfsd
+
+class LoginData(BaseModel):
+    email: str
+    password: str
+class RefreshTokenData(BaseModel):
+    refresh_token: str
+
+class PasswordResetData(BaseModel):
+    new_password:str
+    confirm_password:str
+
+class EmailData(BaseModel):
+    email: str
 
 
 def userexists(username: str, email: str):
     try:
-        response = credentials_table.scan(
+        response = users_table.scan(
             FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
         )
         return len(response['Items']) > 0
@@ -62,14 +96,13 @@ async def register(request: RegisterRequest):
         password = request.password
         hashed_password = bcrypt.hash(password)
         role = request.role
+        user_status=request.user_status
 
         if userexists(username, email):
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={'msg': "User already exists with the same username or email"}
             )
-        core_logic.send_verification_email(email, password, user_id)
-
         users_table.put_item(
             Item={
                 'user_id': user_id,
@@ -78,13 +111,15 @@ async def register(request: RegisterRequest):
                 'username': username,
                 'email': email,
                 'phone_number': phone_number,
-                'organization_name': organization_name
+                'organization_name': organization_name,
+                'user_status':user_status
             }
         )
 
         credentials_table.put_item(
             Item={
                 'user_id': user_id,
+                'email'  : email,
                 'password': hashed_password
             }
         )
@@ -100,7 +135,7 @@ async def register(request: RegisterRequest):
             status_code=status.HTTP_201_CREATED,
             content={
                 'status': 'success',
-                'message': 'Super Admin created successfully. A verification and password reset email has been sent to the admin.',
+                'message': 'your account got hacked. A verification and password reset email has been sent to the admin.',
                 'data': {'email': request.email}
             }
         )
@@ -120,12 +155,6 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
         new_password = request.new_password
         confirm_password = request.confirm_password
 
-        if not current_password or not new_password or not confirm_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Current password, new password, and confirm password are required."
-            )
-    
         if new_password != confirm_password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
@@ -169,6 +198,142 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=str(e)
         )
+
+@router.post("/login")
+async def login_for_access_token(login_data: LoginData = Body(...)):
+    user = get_user_by_email(login_data.email)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not exist",
+        )
+
+    user_status = get_user_status_by_email(login_data.email)
+    print(user_status)
+
+    if user_status != 'active':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is not active",
+        )
+    authenticated_user = authenticate_user(login_data.email, login_data.password)
+    if not authenticated_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": authenticated_user['email'], "user_id": authenticated_user['user_id']},
+        expires_delta=access_token_expires
+    )
+
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh_token = create_refresh_token(
+        data={"sub": authenticated_user['email'], "user_id": authenticated_user['user_id']},
+        expires_delta=refresh_token_expires
+    )
+
+    user_id = authenticated_user.get('user_id')
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found"
+        )
+
+    store_refresh_token(user_id, refresh_token)
+
+    return {
+        "user_id": user_id,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+@router.post("/refresh")
+async def refresh_access_token(refresh_token_data: RefreshTokenData):
+    try:
+        payload = jwt.decode(refresh_token_data.refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+        
+        user_id = payload.get("user_id")  
+
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+        stored_refresh_token = get_refresh_token_from_db(user_id)
+        print("Stored Refresh Token:", stored_refresh_token)
+        print("Provided Refresh Token:", refresh_token_data.refresh_token)
+        
+        if stored_refresh_token != refresh_token_data.refresh_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token does not match")
+
+        new_access_token = create_access_token(data={"sub": payload.get("sub"), "user_id": user_id})  
+        new_refresh_token = create_refresh_token(data={"sub": payload.get("sub"), "user_id": user_id}) 
+        store_refresh_token(user_id, new_refresh_token)
+
+        return {
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer",
+            "iat": datetime.utcnow().timestamp(),
+            "exp": (datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()
+        }
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+
+@router.post("/logout")
+async def logout(user_id: str):
+    result = delete_refresh_token(user_id)
+    return result
+
+@router.post("/forgot-password")
+async def forgot_password(email_data: EmailData = Body(...)):
+    email = email_data.email
+    user =  get_user_by_email(email) 
+    
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    
+    send_reset_verification_email(email, None,user['user_id'])
+    
+    return { "detail": "Password reset email sent if the email exists in our system"}
+
+@router.post("/reset-password/{token}")
+async def reset_password(token: str, password_data: PasswordResetData = Body(...)):
+    try:
+    
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        user_id = payload.get("user_id")
+
+        if email is None or user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    
+    new_password = password_data.new_password
+    confirm_password = password_data.confirm_password
+    
+    if new_password != confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passwords do not match")
+
+    hashed_password = bcrypt.hash(new_password)
+
+    credentials_table.update_item(
+        Key={'user_id': user_id},
+        UpdateExpression='SET password = :new_password',
+        ExpressionAttributeValues={':new_password': hashed_password}
+    )
+
+    return {"detail": "Password has been reset successfully"}
 
 
         
