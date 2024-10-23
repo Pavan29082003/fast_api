@@ -20,7 +20,7 @@ async def get_results(
         source: Optional[str] = None
     ):
 
-    response = await utils.get_data(request.query_params)
+    response = utils.get_data(request.query_params)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK, content={"articles": list(response)}
