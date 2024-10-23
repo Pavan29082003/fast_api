@@ -1,3 +1,5 @@
 .env
 src/auth/cred.json
 *.pyc
+token.pickle
+__pycache__

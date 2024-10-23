@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     aws_secret_key: str
     aws_access_key: str
     debug_mode: bool = False 
+    ip: str
 
     class Config:
         env_file = ".env"  # Path to your .env file
