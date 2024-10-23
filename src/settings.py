@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     debug_mode: bool = False 
     
 
+    ip: str
+
     class Config:
         env_file = ".env" 
 
