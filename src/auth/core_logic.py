@@ -33,8 +33,8 @@ def send_verification_email(email,password,user_id):
     Research Team
     """
     creds = None
-    token_path = r'src\auth\token.pickle'
-    creds_path = r'src\auth\cred.json'    
+    token_path = r'src\cred.json'
+    creds_path = r'src\token.pickle'    
     if os.path.exists(token_path):
         with open(token_path, 'rb') as token:
             creds = pickle.load(token)

@@ -9,6 +9,9 @@ class Connectons():
         aws_access_key_id=settings.aws_access_key,
         aws_secret_access_key=settings.aws_secret_key
     )
-
+    credentials_table = dynamodb.Table('CredentialsTable')
+    roles_table = dynamodb.Table('RolesTable')
+    notes_table = dynamodb.Table('NotesTable')
+    
 
 connections = Connectons()
