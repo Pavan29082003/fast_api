@@ -289,7 +289,6 @@ async def share_note_email(user_id: str, note_id: str, email_request: NoteShareE
                         margin: 0;
                         padding: 0;
                         background-color: #f4f4f4;
-                        background-image: url("life.jpeg");
                         background-size: cover; 
                         background-repeat: no-repeat;
                     }}
@@ -359,10 +358,8 @@ async def share_note_email(user_id: str, note_id: str, email_request: NoteShareE
         </html>
         """
 
-        # Prepare the subject
         subject = f"Shared Note: {note['title']}"
 
-        # Send the email using the helper function
         send_email(email_request.email, subject, message_html)
 
         return JSONResponse(
