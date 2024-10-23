@@ -69,9 +69,6 @@ def send_verification_email(email,password,user_id):
         raise  
 
 
-    
-
-
 
     
 

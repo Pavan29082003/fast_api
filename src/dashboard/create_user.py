@@ -9,6 +9,10 @@ from src.settings import settings
 from src.database.connections import connections
 import uuid
 from boto3.dynamodb.conditions import Key, Attr
+from src.dashboard.utils import(get_user_role, has_permission_to_create, userexists,
+ get_user_by_id,has_permission_to_get_users, get_users_by_role,get_user_details,
+)
+from src.auth.utils import (get_current_user,)
 
 
 
@@ -27,32 +31,12 @@ class UserCreationRequest(BaseModel):
     password: str
     role: str
     organization_name: str
+    user_status: str
 
-
-def userexists(username: str, email: str):
-    try:
-        response = users_table.scan(
-            FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
-        )
-        return len(response['Items']) > 0
-    except ClientError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error querying database")
-
-
-def get_user_role(user_id: str):
-    response = roles_table.get_item(Key={'user_id': user_id})
-    if 'Item' not in response:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User role not found")
-    return response['Item']['role']
-
-def has_permission_to_create(current_role: str, new_role: str):
-    if current_role == 'Super Admin' and new_role in ['Admin', 'User']:
-        return True
-    elif current_role == 'Admin' and new_role == 'User':
-        return True
-    else:
-        return False
-
+class UpdateStatusRequest(BaseModel):
+    admin_id:str
+    user_id: str
+    status: str 
 
 @router.post("/create-user/{creator_id}")
 async def create_user(creator_id: str, request: UserCreationRequest):
@@ -74,6 +58,7 @@ async def create_user(creator_id: str, request: UserCreationRequest):
         password = request.password
         hashed_password = bcrypt.hash(password)
         organization_name = request.organization_name
+        user_status=request.user_status
         role = request.role
 
         if userexists(username, email):
@@ -90,7 +75,8 @@ async def create_user(creator_id: str, request: UserCreationRequest):
                 'username': username,
                 'email': email,
                 'phone_number': phone_number,
-                'organization_name': organization_name
+                'organization_name': organization_name,
+                'user_status':user_status
             }
         )
 
@@ -98,7 +84,8 @@ async def create_user(creator_id: str, request: UserCreationRequest):
             Item={
                 'user_id': user_id,
                 'email'  :email,
-                'password': hashed_password
+                'password': hashed_password,
+                
             }
         )
 
@@ -120,3 +107,95 @@ async def create_user(creator_id: str, request: UserCreationRequest):
 
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+
+@router.get("/profile/{user_id}")
+async def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
+    user_profile = await get_user_by_id(user_id)  
+    return {"user_profile": user_profile}
+
+
+@router.get("/all_users/{admin_id}/{role}")
+async def get_users_with_role(admin_id: str, role: str, current_user: dict = Depends(get_current_user)):
+    current_user_role = get_user_role(admin_id) 
+    
+    if not has_permission_to_get_users(current_user_role, role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view users of this role."
+        )
+    
+    users = await get_users_by_role(role)
+    users_with_details = []
+    for user in users:
+        user_details = await get_user_details(user["user_id"]) 
+        users_with_details.append({
+            "role": user["role"],
+            "user_id": user["user_id"],
+            "email": user_details.get("email"),       
+            "user_status": user_details.get("user_status") 
+        })
+
+    return {"users": users_with_details}
+
+@router.put("/update_user_status")
+async def update_user_status(request: UpdateStatusRequest, current_user: dict = Depends(get_current_user)):
+    admin_id = request.admin_id
+    user_id = request.user_id
+    new_status = request.status
+    current_user_role = get_user_role(admin_id)
+    target_user_role = get_user_role(user_id)
+
+    response = users_table.query(
+        KeyConditionExpression=Key('user_id').eq(user_id)
+    )
+    
+    if not response.get('Items'):
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if current_user_role != 'Admin' and target_user_role == 'Super Admin':
+        raise HTTPException(status_code=403, detail="You do not have permission to update a superadmin.")
+    
+    if current_user_role == 'Admin' and target_user_role != 'User':
+        raise HTTPException(status_code=403, detail="Admins can only update regular users.")
+
+    try:
+        users_table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression="SET user_status = :status",
+            ExpressionAttributeValues={':status': new_status}
+        )
+        return {"message": f"User {user_id} status updated to {new_status}"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+
+@router.delete("/delete_user/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    admin_id = current_user['user_id']
+    print(admin_id)  
+    current_user_role = get_user_role(admin_id)
+    target_user_role = get_user_role(user_id)
+
+    response = users_table.query(
+        KeyConditionExpression=Key('user_id').eq(user_id)
+    )
+    
+    if not response.get('Items'):
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if current_user_role != 'Super Admin' and target_user_role == 'Super Admin':
+        raise HTTPException(status_code=403, detail="You do not have permission to delete a superadmin.")
+    
+    if current_user_role == 'Admin' and target_user_role != 'User':
+        raise HTTPException(status_code=403, detail="Admins can only delete regular users.")
+
+    try:
+        users_table.delete_item(
+            Key={'user_id': user_id}
+        )
+        return {"message": f"User {user_id} successfully deleted."}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
