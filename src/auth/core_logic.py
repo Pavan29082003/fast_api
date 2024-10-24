@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash
 from flask import request, jsonify
 import pickle
 
+
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def send_verification_email(email,password,user_id):    
@@ -25,7 +26,7 @@ def send_verification_email(email,password,user_id):
     Your account has been successfully created. Please use the following link to verify your email and reset your password:
     Your current password is: {password}
     Verification and Password Reset Link:
-    http://127.0.0.1:8080/reset-password/{user_id}
+    http://13.232.28.221:3000/reset-password/{user_id}
 
     If you did not create this account, please contact our support team immediately.
 

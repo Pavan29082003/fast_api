@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional
 import boto3, uuid
 from datetime import datetime
 import pytz
-from twilio.rest import Client
 from src.settings import settings
 import os
 import base64
