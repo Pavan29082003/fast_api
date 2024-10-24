@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends,UploadFile, File 
 from pydantic import BaseModel
+from typing import Optional
 from fastapi.responses import JSONResponse
 import boto3
 from botocore.exceptions import ClientError
@@ -8,12 +9,15 @@ from passlib.hash import bcrypt
 from src.settings import settings
 from src.database.connections import connections
 import uuid
-from boto3.dynamodb.conditions import Key, Attr
-from src.dashboard.utils import(get_user_role, has_permission_to_create, userexists,
- get_user_by_id,has_permission_to_get_users, get_users_by_role,get_user_details,
-)
-from src.auth.utils import (get_current_user,)
+from datetime import datetime
 
+
+from boto3.dynamodb.conditions import Key, Attr
+from src.dashboard.utils import( has_permission_to_create, userexists,
+ get_user_by_id,has_permission_to_get_users,get_user_details,get_user_role, get_users_by_organization,generate_random_password,
+)
+from .models import (BaseModel,UpdateStatusRequest,EditUserRequest,UserCreationRequest,)
+from src.auth.utils import (get_current_user,send_verification_email, generate_password_reset_token)
 
 
 load_dotenv()
@@ -21,25 +25,16 @@ router=APIRouter()
 users_table = connections.dynamodb.Table('UsersTable')
 credentials_table = connections.dynamodb.Table('CredentialsTable')
 roles_table = connections.dynamodb.Table('RolesTable')
+BUCKET_NAME = 'userprofilepicturess' 
 
-class UserCreationRequest(BaseModel):
-    first_name: str
-    last_name: str
-    username: str
-    email: str
-    phone_number: str
-    password: str
-    role: str
-    organization_name: str
-    user_status: str
-
-class UpdateStatusRequest(BaseModel):
-    admin_id:str
-    user_id: str
-    status: str 
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=settings.aws_access_key,
+    aws_secret_access_key=settings.aws_secret_key,
+)
 
 @router.post("/create-user/{creator_id}")
-async def create_user(creator_id: str, request: UserCreationRequest):
+async def create_user(creator_id: str, request: UserCreationRequest, current_user: dict = Depends(get_current_user)):
     try:
         creator_role = get_user_role(creator_id)
 
@@ -50,16 +45,16 @@ async def create_user(creator_id: str, request: UserCreationRequest):
             )
 
         user_id = str(uuid.uuid4())
-        first_name = request.first_name
-        last_name = request.last_name
         username = request.username
         email = request.email
-        phone_number = request.phone_number
-        password = request.password
+        password=generate_random_password()
         hashed_password = bcrypt.hash(password)
+        technical_skills = request.technical_skills
+        research_interests = request.research_interests
+        primary_research_area=request.primary_research_area
+        role =request.role
+        department = request.department
         organization_name = request.organization_name
-        user_status=request.user_status
-        role = request.role
 
         if userexists(username, email):
             return JSONResponse(
@@ -67,58 +62,55 @@ async def create_user(creator_id: str, request: UserCreationRequest):
                 content={'msg': "User already exists with the same username or email"}
             )
 
+        current_time = datetime.utcnow().isoformat()
+        
         users_table.put_item(
             Item={
                 'user_id': user_id,
-                'first_name': first_name,
-                'last_name': last_name,
                 'username': username,
                 'email': email,
-                'phone_number': phone_number,
+                'department': department,
                 'organization_name': organization_name,
-                'user_status':user_status
+                'user_status': "active",
+                'research_interests': research_interests,
+                "primary_research_area": primary_research_area,
+                'technical_skills': technical_skills,
+                "current_time":current_time
             }
         )
-
         credentials_table.put_item(
             Item={
                 'user_id': user_id,
-                'email'  :email,
-                'password': hashed_password,
-                
+                'email': email,
+                'password': hashed_password,  
             }
         )
 
         roles_table.put_item(
             Item={
                 'user_id': user_id,
-                'role': role
+                'role': "User"
             }
         )
+
+        send_verification_email(email,password,user_id)
+        reset_token = generate_password_reset_token(email, user_id) 
 
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
             content={
                 'status': 'success',
-                'message': f'{role} created successfully.',
-                'data': {'email': request.email}
+                'message': 'A verification and password reset email has been sent.',
+                'data': {'email': request.email, "reset_token":reset_token}
             }
         )
-
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-
-@router.get("/profile/{user_id}")
-async def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
-    user_profile = await get_user_by_id(user_id)  
-    return {"user_profile": user_profile}
-
-
-@router.get("/all_users/{admin_id}/{role}")
-async def get_users_with_role(admin_id: str, role: str, current_user: dict = Depends(get_current_user)):
-    current_user_role = get_user_role(admin_id) 
+@router.get("/all_users/{admin_id}/{organization_name}")
+async def get_users_with_role(admin_id: str, organization_name: str, current_user: dict = Depends(get_current_user)):
+    current_user_role =  get_users_by_organization(admin_id) 
     
     if not has_permission_to_get_users(current_user_role, role):
         raise HTTPException(
@@ -126,12 +118,12 @@ async def get_users_with_role(admin_id: str, role: str, current_user: dict = Dep
             detail="You do not have permission to view users of this role."
         )
     
-    users = await get_users_by_role(role)
+    users = await  get_users_by_organization(organization_name)
     users_with_details = []
     for user in users:
         user_details = await get_user_details(user["user_id"]) 
         users_with_details.append({
-            "role": user["role"],
+            "organization_name": user["organization_name"],
             "user_id": user["user_id"],
             "email": user_details.get("email"),       
             "user_status": user_details.get("user_status") 
@@ -199,3 +191,71 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
+
+
+@router.put("/edit_user")
+async def edit_user(request: EditUserRequest, current_user: dict = Depends(get_current_user)):
+    admin_id = current_user['user_id']
+    user_id = request.user_id
+    new_email = request.new_email
+    new_password = request.new_password
+    new_status = request.new_status
+    new_role = request.new_role
+    
+    current_user_role = get_user_role(admin_id)
+    target_user_role = get_user_role(user_id)
+    
+    
+    response = users_table.query(
+        KeyConditionExpression=Key('user_id').eq(user_id)
+    )
+    
+    if not response.get('Items'):
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if current_user_role != 'Admin' and target_user_role == 'Super Admin':
+        raise HTTPException(status_code=403, detail="You do not have permission to edit a superadmin.")
+    
+    if current_user_role == 'Admin' and target_user_role != 'User':
+        raise HTTPException(status_code=403, detail="Admins can only edit regular users.")
+    
+    
+    try:
+        if new_email:
+            users_table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression="SET email = :email",
+                ExpressionAttributeValues={':email': new_email}
+            )
+        
+        if new_password:
+            credentials_table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression="SET password = :password",
+                ExpressionAttributeValues={':password': new_password}
+            )
+        
+        if new_status:
+            users_table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression="SET user_status = :status",
+                ExpressionAttributeValues={':status': new_status}
+            )
+        
+        
+        if new_role:
+            roles_table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression="SET #rl = :role",
+                ExpressionAttributeNames={'#rl': 'role'},  
+                ExpressionAttributeValues={':role': new_role}
+            )
+        
+        return {"message": f"User {user_id} updated successfully."}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
+
+
+
+

@@ -26,7 +26,10 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 SECRET_KEY = "6fee615b2e2938c237f9cf7d49f7b55afb78ac626dd6c983f4cc125aecf22b070325b6eb9554893fc787f0d7154225bf02f324d244d7c9ce0a205cca82fcc02b8382ac8cd1c6126d43315a3da96d564951d72d0f3291f78bb2b9d9e372ed499fbf78f421c0dc0487642f94e08e545d1f1dc00423699cc66623981c8c902fe2a103d8825ab4bc03f7d8658eca8bc4f24c97bbc33277d7571f6bcfdd40c872e70054caf8a263fdbcb741932596d62fc85e68cbfa5eb9c8c237c09455bf8d5dcc34e2acfd584c8f0f785c7c9d1f23b9cab8cd78d5bcfa1f385556ba66fd26469dce8908414579bbe2cabc599ce9c5a1e58734333acc303572c1750a90f6e779c151"
 ALGORITHM = "HS256"
 REFRESH_SECRET_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTcyOTQ4NDU4OCwiaWF0IjoxNzI5NDg0NTg4fQ.euVG7j35fsPxEhO1NJFuoNzU283fy4opLRXXN51TvT4"
-PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 10
+
+PASSWORD_SECRET_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTcyOTY3ODQ3MSwiaWF0IjoxNzI5Njc4NDcxfQ.MeeNSYuuFbxtMxR8wmlksXhnsJshrm6qcuMI2zdJuKg"  
+
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 20
 ACCESS_TOKEN_EXPIRE_MINUTES = 100
 REFRESH_TOKEN_EXPIRE_DAYS = 30
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -78,13 +81,11 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-
 def verify_password(provided_password, stored_password):
     return pwd_context.verify(provided_password, stored_password)
 
 def get_user_by_email(email: str):
     try:
-    
         response = credentials_table.scan(
             FilterExpression=Attr('email').eq(email)
         )
@@ -214,14 +215,14 @@ def generate_password_reset_token(email: str, user_id: str):
 
 
 def send_reset_verification_email(email,password,user_id):  
-    reset_token = generate_password_reset_token(email, user_id)  
+    
     subject = "Reset Your Password"
     message_text = f"""
     Hi there,
 
     We received a request to reset the password for your account. Click the link below to reset your password. This link will expire in 10 minutes.
 
-    Reset Password: http://127.0.0.1:8080/reset-password/{reset_token}
+    Reset Password: http://13.232.28.221:3000/reset-password/{user_id}
 
     If you didn't request a password reset, you can ignore this email.
 
@@ -265,11 +266,15 @@ def send_reset_verification_email(email,password,user_id):
         raise  
 
 
-def userexists(username: str, email: str):
+def userexists(username: str, email: str) -> bool:
     try:
         response = users_table.scan(
             FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
         )
-        return len(response['Items']) > 0
+
+        if len(response['Items']) > 0:
+            return True  
+        return False
+
     except ClientError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error querying database")
