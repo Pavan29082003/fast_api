@@ -1,4 +1,6 @@
+import asyncio
 from datetime import datetime, timedelta
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from sentence_transformers import SentenceTransformer
@@ -7,6 +9,8 @@ import time
 import gc
 from src.settings import settings
 from src.core_search.publication_categories import publication_categories 
+import google.generativeai as genai
+
 ip = settings.ip
 client = MilvusClient(uri="http://" + ip + ":19530")
 connections.connect(host=ip, port="19530")
@@ -16,6 +20,21 @@ vector_data_biorxiv = Collection(name="vector_data_biorxiv")
 vector_data_plos = Collection(name="vector_data_plos")
 
 sbert_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+genai.configure(api_key=settings.gemini_api_key)
+generation_config = {
+"temperature": 0,
+"top_p": 0.95,
+"top_k": 64,
+"max_output_tokens": 8192,
+"response_mime_type": "text/plain",
+}
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    generation_config=generation_config,
+    safety_settings="BLOCK_NONE",
+)
+fixed_prompt = "\n\n" +  "Dump all genes, proteins, diseases,gene ontology, mutation,cellular , variants into a json and also give the count of their occurence in the article.Give response only in json format. Format of json : {'gene': {'word': '<occurence_value>'},'protein' : {'word': '<occurence_value>'} }.Use the keywords 'gene','disesase','gene ontology','celluar','mutation','protein','variants' for json.If no terms are found related to these categories return an empty json "
 
 def search_milvus(collection, query_embedding):
     field_names = {
@@ -75,7 +94,6 @@ def apply_filters(articles, filters):
         for article in articles:
             for publication_type in article.get("publication_type"):
                 for filter in article_type:
-                    print(filter)
                     if publication_type in publication_categories[filter] and article not in article_type_filtered_articles:
                         article_type_filtered_articles.append(article)                
                         break
@@ -158,3 +176,86 @@ def get_data(query_params):
         article["similarity_score"] = ((article["similarity_score"] + 1) / 2) * 100
     articles = apply_filters(articles, query_params)
     return articles
+
+
+async def annotate(**ids_source):
+    data, articles, tasks = {}, [], []
+    collections  = {
+        "pubmed" : "vector_data_pmc",
+        "biorxiv" : "vector_data_biorxiv",
+        "plos" : "vector_data_plos"
+    }
+    for source,ids in ids_source.items():
+        if ids:
+            articles = articles + client.get(
+                collection_name=collections[source],
+                ids=ids
+            )
+            for id in ids:
+                data[id] = []
+    id_names = {
+        "pubmed" : "pmid",
+        "BioRxiv" : "bioRxiv_id",
+        "Public Library of Science (PLOS)" : "plos_id"
+    }
+    async def gemini_api_call_annotate(article_id, context, data):
+        chat_session =  model.start_chat()
+        words = context.split(" ")
+        prompt = str(words) + str(fixed_prompt)
+        response = chat_session.send_message(prompt)
+        response = json.loads(response.text.replace("```json","").replace("```","").replace("'",'"'))
+        data[article_id].append(response)
+
+    for article in articles:
+        source = article['source'] if article.get('source') else "pubmed"
+        context = json.dumps(article['abstract_content']) + "\n\n" + json.dumps(article['body_content']) 
+        chunk = len(context) // 10
+        article_chunks = [context[i:i+chunk] for i in range(0,len(context),chunk)]
+        
+        for chunk in article_chunks:
+            article_id = article[id_names.get(source, "pmid")]
+            tasks.append(gemini_api_call_annotate(article_id, chunk, data))
+
+    await asyncio.gather(*tasks)
+
+    return data
+
+def annotation_score(data):
+    def merge_dict(data):
+        merged_dict = {}
+        for chunk_response in data:
+            for annotate_type in chunk_response.keys():          
+                if annotate_type not in merged_dict.keys():
+                    merged_dict[annotate_type] = chunk_response[annotate_type]
+                else:
+                    for k in chunk_response[annotate_type].keys():
+                        flag = False
+                        for v in merged_dict[annotate_type].keys():
+                            if k == v:
+                                flag = True
+                                merged_dict[annotate_type][v] = int(merged_dict[annotate_type][v]) + int(chunk_response[annotate_type][k])  
+                        if flag == False:
+                            merged_dict[annotate_type][k] = int(chunk_response[annotate_type][k])
+        return merged_dict
+    for id in data.keys():
+        response = []
+        total_count = 0
+        data[id] = merge_dict(data[id])
+        print(data)
+        if len(data[id]) > 0:
+            for i in data[id].keys():
+                for key,value in list(data[id][i].items()):
+                    if isinstance(value, str):
+                        data[id][i][key] = int(value)
+                values = sum(list(data[id][i].values()))
+                total_count = total_count + values
+            empty_fields = []    
+            for j in data[id].keys():
+                if len(data[id][j]) > 0:
+                    data[id][j]['annotation_score'] = ( sum(list(data[id][j].values())) / total_count ) * 100
+                else:
+                    empty_fields.append(j)
+            for k in empty_fields:
+                del data[id][k]       
+        response.append({id:data[id]})        
+    return response
