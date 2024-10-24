@@ -27,6 +27,7 @@ from src.auth.utils import (
     get_refresh_token_from_db,
     delete_refresh_token,
     send_reset_verification_email,
+     generate_password_reset_token,
     get_user_status_by_email,
     get_user_by_email,
     ALGORITHM,
@@ -35,44 +36,15 @@ from src.auth.utils import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
+from .models import (RegisterRequest,PasswordChangeRequest,LoginData,
+RefreshTokenData,PasswordResetData,EmailData,)
+
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 users_table = connections.dynamodb.Table('UsersTable')
 credentials_table = connections.dynamodb.Table('CredentialsTable')
 roles_table = connections.dynamodb.Table('RolesTable')
-
-class RegisterRequest(BaseModel):
-    first_name: str
-    last_name: str
-    username: str
-    email: str
-    phone_number: str
-    password: str
-    role: str
-    organization_name: str
-    user_status: str
-
-
-class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
-    confirm_password: str
-#dsgfsdfsd
-
-class LoginData(BaseModel):
-    email: str
-    password: str
-class RefreshTokenData(BaseModel):
-    refresh_token: str
-
-class PasswordResetData(BaseModel):
-    new_password:str
-    confirm_password:str
-
-class EmailData(BaseModel):
-    email: str
-
 
 def userexists(username: str, email: str):
     try:
@@ -94,6 +66,7 @@ async def register(request: RegisterRequest):
         username = request.username
         email = request.email
         password = request.password
+        department=request.department
         hashed_password = bcrypt.hash(password)
         role = request.role
         user_status=request.user_status
@@ -112,6 +85,7 @@ async def register(request: RegisterRequest):
                 'email': email,
                 'phone_number': phone_number,
                 'organization_name': organization_name,
+                'department':department,
                 'user_status':user_status
             }
         )
@@ -130,15 +104,19 @@ async def register(request: RegisterRequest):
                 'role': role
             }
         )
+        send_verification_email(email,password,user_id)
+        reset_token = generate_password_reset_token(email, user_id) 
 
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
             content={
                 'status': 'success',
                 'message': 'your account got hacked. A verification and password reset email has been sent to the admin.',
-                'data': {'email': request.email}
+                'data': {'email': request.email,'reset_token':reset_token}
+                
             }
         )
+    
 
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -148,9 +126,23 @@ def verify_password(stored_password, provided_password):
     return bcrypt.verify(provided_password, stored_password)
 
 
-@router.post("/change-password/{user_id}")
-async def change_password(user_id: str, request: PasswordChangeRequest):
+@router.post("/change-password/{token}")
+async def change_password(token: str, request: PasswordChangeRequest = Body(...),):
     try:
+        
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("user_id")
+            
+            if user_id is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+       
         current_password = request.current_password
         new_password = request.new_password
         confirm_password = request.confirm_password
@@ -160,7 +152,6 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
                 status_code=status.HTTP_400_BAD_REQUEST, 
                 detail="New password and confirm password do not match."
             )
-
         response = credentials_table.get_item(
             Key={'user_id': user_id}
         )
@@ -173,6 +164,7 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
 
         stored_password_hash = response['Item']['password']
 
+
         if not verify_password(stored_password_hash, current_password):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, 
@@ -180,7 +172,6 @@ async def change_password(user_id: str, request: PasswordChangeRequest):
             )
 
         new_password_hash = bcrypt.hash(new_password)
-
         credentials_table.update_item(
             Key={'user_id': user_id},
             UpdateExpression="SET password = :p",
@@ -250,7 +241,10 @@ async def login_for_access_token(login_data: LoginData = Body(...)):
         "user_id": user_id,
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "iat": datetime.utcnow().timestamp(),
+        "exp": (datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()
+
     }
 @router.post("/refresh")
 async def refresh_access_token(refresh_token_data: RefreshTokenData):
@@ -293,19 +287,23 @@ async def logout(user_id: str):
     return result
 
 @router.post("/forgot-password")
-async def forgot_password(email_data: EmailData = Body(...)):
+async def forgot_password(email_data: EmailData = Body(...),current_user: dict = Depends(get_current_user)):
     email = email_data.email
     user =  get_user_by_email(email) 
+    user_id = user['user_id']
+    
+    reset_token = generate_password_reset_token(email, user_id) 
     
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     
     send_reset_verification_email(email, None,user['user_id'])
     
-    return { "detail": "Password reset email sent if the email exists in our system"}
+    return { "detail": "Password reset email sent if the email exists in our system", "reset_token":reset_token}
+
 
 @router.post("/reset-password/{token}")
-async def reset_password(token: str, password_data: PasswordResetData = Body(...)):
+async def reset_password(token: str, password_data: PasswordResetData = Body(...),current_user: dict = Depends(get_current_user)):
     try:
     
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])

@@ -8,26 +8,44 @@ from src.database.connections import connections
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from boto3.dynamodb.conditions import Key,Attr
+import string  
+import random
+
 
 users_table = connections.dynamodb.Table('UsersTable')
 credentials_table = connections.dynamodb.Table('CredentialsTable')
 roles_table=connections.dynamodb.Table("RolesTable")
 
-def userexists(username: str, email: str):
+def userexists(username: str, email: str) -> bool:
     try:
         response = users_table.scan(
             FilterExpression=Attr('username').eq(username) | Attr('email').eq(email)
         )
-        return len(response['Items']) > 0
+
+        if len(response['Items']) > 0:
+            return True  
+        return False
+
     except ClientError as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error querying database")
-
 
 def get_user_role(user_id: str):
     response = roles_table.get_item(Key={'user_id': user_id})
     if 'Item' not in response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User role not found")
     return response['Item']['role']
+
+def get_users_by_organization(organization_name: str):
+    # Query the users table to get all users that match the given organization name
+    response = users_table.scan(
+        FilterExpression=Attr('organization_name').eq(organization_name)
+    )
+
+    if 'Items' not in response or not response['Items']:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No users found for this organization")
+
+    return response['Items']
+
 
 def has_permission_to_create(current_role: str, new_role: str):
     if current_role == 'Super Admin' and new_role in ['Admin', 'User']:
@@ -99,3 +117,5 @@ async def get_user_details(user_id: str):
             "user_status": response['Items'][0].get("user_status")          }
     
     return {}  
+def generate_random_password() -> str:
+        return str(random.randint(100000, 999999)) 

@@ -1,8 +1,10 @@
 import boto3
 from src.database.connections import connections
 
+
+
 def create_users_table():
-    table = connections.dynamodb.create_table(
+    table =dynamodb.create_table(
         TableName='UsersTable',
         KeySchema=[
             {
@@ -25,7 +27,7 @@ def create_users_table():
     print("UsersTable created")
 
 def create_credentials_table():
-    table = connections.dynamodb.create_table(
+    table = dynamodb.create_table(
         TableName='CredentialsTable',
         KeySchema=[
             {
@@ -49,7 +51,7 @@ def create_credentials_table():
 
 
 def create_roles_table():
-    table = connections.dynamodb.create_table(
+    table =dynamodb.create_table(
         TableName='RolesTable',
         KeySchema=[
             {
@@ -73,7 +75,7 @@ def create_roles_table():
 
 
 def create_notes_table():
-    table = connections.dynamodb.create_table(
+    table =dynamodb.create_table(
         TableName='NotesTable',
         KeySchema=[
             {
@@ -97,7 +99,7 @@ def create_notes_table():
 
 
 def create_user_audit_table():
-    table = connections.dynamodb.create_table(
+    table =dynamodb.create_table(
         TableName="UserAudit",
         KeySchema=[
             {
@@ -121,7 +123,7 @@ def create_user_audit_table():
 
 
 def create_rating_table():
-    table = connections.dynamodb.create_table(
+    table = dynamodb.create_table(
         TableName="RatingTable",
         KeySchema=[
             {

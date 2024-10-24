@@ -7,13 +7,14 @@ from src.bookmarks import routes as bookmarks_route
 
 from src.database import connections
 from src.dashboard import create_user as dashboard_route
-
+from src.user import routes as user_route
 
 
 app = FastAPI()
 
 app.include_router(auth_route.router,prefix="/auth")
-app.include_router(dashboard_route.router,prefix="/user")
+app.include_router(dashboard_route.router,prefix="/admin")
+app.include_router(user_route.router,prefix="/user")
 
 app.include_router(notes_route.router,prefix="/notes")
 app.include_router(rating_route.router,prefix="/rating")

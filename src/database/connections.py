@@ -10,5 +10,4 @@ class Connectons():
         aws_secret_access_key=settings.aws_secret_key
     )
 
-
 connections = Connectons()
