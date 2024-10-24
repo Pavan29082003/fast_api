@@ -6,7 +6,7 @@ from src.rating import routes as rating_route
 from src.bookmarks import routes as bookmarks_route
 from fastapi.middleware.cors import CORSMiddleware
 from src.history import routes as history_route
-from src.database import connections
+from src.database.connections import connections
 from src.dashboard import create_user as dashboard_route
 from src.user import routes as user_route
 from src.core_search import routes as search_route
