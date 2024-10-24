@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.history import routes as history_route
 from src.database import connections
 from src.dashboard import create_user as dashboard_route
-from src.user import routes as user_routefrom src.core_search import routes as search_route
+from src.user import routes as user_route
+from src.core_search import routes as search_route
+from src.view_article import routes as view_article_route
 
 app = FastAPI()
 app.add_middleware(
@@ -26,6 +28,7 @@ app.include_router(rating_route.router,prefix="/rating")
 app.include_router(bookmarks_route.router,prefix="/bookmarks")
 app.include_router(history_route.router,prefix="/history")
 app.include_router(search_route.router,prefix="/core_search")
+app.include_router(view_article_route.router,prefix="/view_article")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
