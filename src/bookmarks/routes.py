@@ -2,18 +2,15 @@ from fastapi import FastAPI, HTTPException, APIRouter, status, Query
 from fastapi.responses import JSONResponse
 import boto3
 from src.settings import settings
+from src.database.connections import connections
 
 app = FastAPI()
 router = APIRouter()
 
-# Initialize DynamoDB resource
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-    aws_access_key_id=settings.aws_access_key,
-    aws_secret_access_key=settings.aws_secret_key
-)
+
 
 # DynamoDB table for users
-users_table = dynamodb.Table('UsersTable')
+users_table = connections.dynamodb.Table('UsersTable')
 
 # Add article to bookmarks
 @router.post("/users/{user_id}/bookmarks")

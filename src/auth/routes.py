@@ -11,7 +11,7 @@ import uuid
 from src.auth import core_logic
 from dotenv import load_dotenv
 from passlib.hash import bcrypt
-from src.settings import settings
+# from src.settings import settings
 from boto3.dynamodb.conditions import Key, Attr
 from src.database.connections import connections
 from fastapi import APIRouter, Depends, HTTPException, status

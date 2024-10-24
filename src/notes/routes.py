@@ -17,17 +17,14 @@ from googleapiclient.discovery import build
 from email.mime.text import MIMEText
 from pydantic import BaseModel
 from typing import Optional
+from src.database.connections import connections
 
 router = APIRouter()
 
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-    aws_access_key_id=settings.aws_access_key,
-    aws_secret_access_key=settings.aws_secret_key
-)
 
 
-credentials_table = dynamodb.Table('UsersTable')
-notes_table = dynamodb.Table('NotesTable')
+credentials_table =connections.dynamodb.Table('UsersTable')
+notes_table = connections.dynamodb.Table('NotesTable')
 
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
@@ -61,8 +58,8 @@ def fetch_note(user_id: str, note_id: str):
 # Helper function to send email using Gmail API
 def send_email(email: str, subject: str, message_html: str):
     creds = None
-    token_path = r'C:\Users\saina\OneDrive\Desktop\fast_api\src\auth\token.pickle'  
-    creds_path = r'C:\Users\saina\OneDrive\Desktop\fast_api\cred.json'  
+    token_path = r'src\token.pickle'  
+    creds_path = r'src\cred.json'  
 
     if os.path.exists(token_path):
         with open(token_path, 'rb') as token:

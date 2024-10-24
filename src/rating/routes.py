@@ -5,17 +5,20 @@ import boto3
 from datetime import datetime
 from src.settings import settings
 from decimal import Decimal
+from src.database.connections import connections
+import pytz
 
-app = FastAPI()
+
+def get_local_time_formatted():
+    local_timezone = pytz.timezone('Asia/Kolkata')
+    local_time = datetime.now(local_timezone)
+    return local_time.strftime('%d-%m-%Y %H:%M')
+
 router = APIRouter()
 
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1',
-    aws_access_key_id=settings.aws_access_key,
-    aws_secret_access_key=settings.aws_secret_key
-)
 
-users_table = dynamodb.Table('UsersTable')
-ratings_table = dynamodb.Table('RatingTable')
+users_table = connections.dynamodb.Table('UsersTable')
+ratings_table = connections.dynamodb.Table('RatingTable')
 
 class RatingCreate(BaseModel):
     rating: int 
@@ -31,7 +34,7 @@ def convert_decimal_to_float(data):
         return data
 
 
-@router.post("/articles/{article_id}/rate")
+@router.post("/{article_id}/rate")
 async def rate_article(article_id: str, user_id: str = Query(...), rating: RatingCreate = None):
     if not (1 <= rating.rating <= 5):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rating must be between 1 and 5")
@@ -66,7 +69,7 @@ async def rate_article(article_id: str, user_id: str = Query(...), rating: Ratin
         )
 
        
-        time_rated = datetime.utcnow().strftime("%d-%m-%Y %H:%M")
+        time_rated = get_local_time_formatted()
         ratings_table.put_item(
             Item={
                 'user_id': user_id,  
@@ -137,7 +140,7 @@ async def rate_article(article_id: str, user_id: str = Query(...), rating: Ratin
         )
 
 
-@router.get("/articles/{article_id}/average")
+@router.get("/{article_id}/average")
 async def get_article_average_rating(article_id: str):
     try:
        
