@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash
 from flask import request, jsonify
 import pickle
 
+
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def send_verification_email(email,password,user_id):    
