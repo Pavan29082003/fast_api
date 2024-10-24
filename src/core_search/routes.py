@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.core_search import utils
 from fastapi import APIRouter, Depends, HTTPException, status
 from sentence_transformers import SentenceTransformer
+from src.core_search.models import *
 
 router = APIRouter()
 
@@ -25,4 +26,16 @@ async def get_results(
     return JSONResponse(
         status_code=status.HTTP_200_OK, content={"articles": list(response)}
     )
+
+@router.post("/annotate")
+async def annotate( request: AnnotateRequest ):
+    response = await utils.annotate(pubmed=request.pubmed, biorxiv=request.biorxiv, plos=request.plos)
+    print(response)
+    response = utils.annotation_score(response)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, content=response 
+    )
+
+
 
